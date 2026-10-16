@@ -13,14 +13,13 @@ The line never reaches Claude Code's input box. It goes into a local queue,
 and a Claude Code hook delivers it at the next tool boundary, without stopping
 the agent. Every message is logged to `.steer/fixes.jsonl`.
 
-Plain `claude` sessions get logging too: a message you type into Claude Code's
-own queue while Claude is working is recorded in the same file (see
-[Plain `claude` sessions](#plain-claude-sessions)).
+`/inject <msg>` also works if you start plain `claude` instead of `inject`,
+without urgent mode (see [Plain `claude` sessions](#plain-claude-sessions)).
 
-| You type | Urgency | Delivered | What Claude sees |
-| --- | --- | --- | --- |
-| `/inject <msg>` | normal | after the current tool call finishes | extra context next to the tool result |
-| `/inject! <msg>` | urgent | before the next tool call runs | that call is **blocked** and the message is the reason |
+| You type | Urgency | Delivered | What Claude sees | `inject` | plain `claude` |
+| --- | --- | --- | --- | :-: | :-: |
+| `/inject <msg>` | normal | after the current tool call finishes | extra context next to the tool result | yes | yes |
+| `/inject! <msg>` | urgent | before the next tool call runs | that call is **blocked** and the message is the reason | yes | no |
 
 ## Quickstart
 
@@ -43,6 +42,9 @@ own queue while Claude is working is recorded in the same file (see
 3. **Use `inject` wherever you'd use `claude`.** All arguments pass through
    (`inject --resume`, `inject --model opus`, ...). While Claude works, type
    `/inject <message>` or `/inject! <message>` and press Enter.
+
+   Prefer to keep typing `claude`? After step 2, `/inject <message>` works
+   there too, just without urgent mode.
 
 ## What you'll see
 
@@ -78,9 +80,11 @@ own queue while Claude is working is recorded in the same file (see
   agent's hooks through the `INJECT_DIR` environment variable, so several
   `inject` sessions in different terminals never cross. Claims are atomic, so
   parallel tool calls can't deliver a message twice.
-- **Hooks** (`src/adapters/claude-code/`): each hook is a shell one-liner that
-  exits right away unless a message of the right kind is queued. Plain
-  `claude` sessions, and tool calls with nothing queued, never start Node.
+- **Hooks** (`src/adapters/claude-code/`): the tool hooks are shell one-liners
+  that exit right away unless a message of the right kind is queued, so tool
+  calls with nothing queued never start Node. The `UserPromptSubmit` hook is
+  the exception: it runs Node once per prompt (see
+  [Plain `claude` sessions](#plain-claude-sessions)).
 
 ### Claude Code hook events used
 
@@ -90,7 +94,7 @@ Based on the [hooks reference](https://code.claude.com/docs/en/hooks):
 | --- | --- | --- |
 | `PostToolUse`, `PostToolUseFailure` | normal notes | `hookSpecificOutput.additionalContext`. Claude Code wraps it in a system reminder that Claude reads on its next request |
 | `PreToolUse` | urgent messages | `hookSpecificOutput.permissionDecision: "deny"` with `permissionDecisionReason`, which is shown to Claude. Any notes still queued ride along in the same reason |
-| `UserPromptSubmit` | logging messages typed into Claude Code's own queue mid-turn | none; it only appends to `.steer/fixes.jsonl` |
+| `UserPromptSubmit` | plain `claude`: queueing `/inject`; logging messages typed into Claude Code's own queue | `decision: "block"` with a `reason` for `/inject ...` prompts (the reason is shown to you, not Claude); otherwise nothing |
 
 Hook changes take effect in Claude Code sessions started after
 `inject --install`.
@@ -110,38 +114,65 @@ to make, or had just made, when the message was delivered.
 
 | `delivered_via` | Meaning |
 | --- | --- |
-| `PostToolUse`, `PostToolUseFailure` | an `/inject` note, added as context after a tool call |
+| `PostToolUse`, `PostToolUseFailure` | an `/inject` note, added as context after a tool call (wrapper or plain `claude`) |
 | `PreToolUse` | an `/inject!` message that blocked a tool call |
 | `claude-code-queue` | a message typed into Claude Code's own queue mid-turn. Claude Code delivers it itself once the running tool calls finish, so `delivered_at` is `null` |
 | `null` | an `/inject` message still queued when Claude Code exited |
 
 ## Plain `claude` sessions
 
-`/inject` needs the wrapper, but you can still steer a plain `claude` session
-with Claude Code's own queue: type a message while Claude is working and press
-Enter. Claude Code passes it to Claude as soon as the running tool calls finish.
+After `inject --install`, `/inject <message>` works in a session started with
+plain `claude` too. There is no wrapper and no urgent mode:
 
-With inject's hooks installed, those messages are logged to
-`.steer/fixes.jsonl` too. Claude Code fires `UserPromptSubmit` the moment you
-press Enter, including on a queued message, and a queued message carries the
-running turn's `prompt_id` while a new turn gets a new one. The hook keeps the
-last `prompt_id` per session, so it logs only messages sent mid-turn and
-ignores ordinary prompts. `doing` comes from the session transcript.
+| | `inject` | plain `claude` |
+| --- | --- | --- |
+| `/inject <msg>` | yes | yes |
+| `/inject! <msg>` | yes, blocks the next tool call | refused with a notice; nothing is sent |
+| Live "queued" bar at the bottom of the terminal | yes | no |
+| Message reaches Claude | next tool boundary | next tool boundary |
+| Logged to `.steer/fixes.jsonl` | yes | yes |
 
-This hook runs once per prompt in every Claude Code session that reads
-`~/.claude/settings.json`, including the desktop app's. It never prints
-anything and always exits 0, so it can't change or block a prompt.
+How it works without a wrapper:
 
-Limits: there's no urgent mode here, and a message you take back out of the
-queue with `Up` has already been logged.
+1. Claude Code runs the `UserPromptSubmit` hook the moment you press Enter,
+   including for a message you type while Claude is working. The hook sees a
+   prompt that starts with `/inject`, **blocks it** (so Claude never sees the
+   text) and appends the message to a small per-session file in
+   `$XDG_RUNTIME_DIR/inject-plain/` (or the system temp directory).
+   Claude Code shows `inject: queued, delivers at Claude's next tool call.`
+2. After the next tool call, the `PostToolUse` hook claims that file and
+   returns the message as `additionalContext`, the same as in wrapper mode. Each
+   message is delivered once, and only to the session that queued it.
+
+Other messages you type mid-turn (no `/inject` prefix) go into Claude Code's own
+queue as usual. The hook logs those to `.steer/fixes.jsonl` as well, with
+`delivered_via: "claude-code-queue"`. It keeps the last `prompt_id` per session:
+a queued message carries the running turn's `prompt_id`, and a new turn gets a
+new one.
+
+The `UserPromptSubmit` hook runs once per prompt in every Claude Code session
+that reads `~/.claude/settings.json`, including the desktop app's. It prints
+nothing for ordinary prompts, and any failure lets the prompt through unchanged.
+
+Limits:
+
+- **No urgent mode.** Only a wrapper that holds the queue can make the next tool
+  call fail, so `/inject!` is refused here instead of being silently downgraded.
+- **A tool call is needed.** A message queued while Claude writes its final
+  answer waits for Claude's next tool call, which may be in your next turn.
+  Pending files older than 24 hours are removed.
+- **Inside the wrapper** `/inject` lines are held back before Claude Code sees
+  them, so the plain-mode hook steps aside.
+- A message you take back out of Claude Code's own queue with `Up` has already
+  been logged.
 
 ## Things to know
 
 - **Claude Code's own queue.** Recent Claude Code versions already queue a
   normal message you type while Claude works, and pass it to Claude once the
-  current tool calls finish. inject adds the urgent mode, the log, and an
-  agent-neutral core that other agents can plug into. Messages sent that way
-  are logged too.
+  current tool calls finish. inject adds `/inject`, the urgent mode, the log,
+  and an agent-neutral core that other agents can plug into. Messages sent that
+  way are logged too.
 - **Delivery needs a tool boundary.** A message queued while Claude writes its
   final answer stays queued until Claude's next tool call, which may be in
   your next turn. The `N queued` marker shows that it is waiting.
