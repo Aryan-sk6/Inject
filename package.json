@@ -1,0 +1,34 @@
+{
+  "name": "inject-steer",
+  "version": "0.1.0",
+  "description": "Type /inject <message> while Claude Code is working and it reaches the running agent at the next tool boundary, without stopping it.",
+  "type": "module",
+  "bin": {
+    "inject": "bin/inject.js"
+  },
+  "files": [
+    "bin",
+    "src"
+  ],
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "keywords": [
+    "claude-code",
+    "hooks",
+    "pty",
+    "agent",
+    "steering"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "node-pty": "^1.1.0"
+  }
+}
