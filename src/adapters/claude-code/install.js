@@ -26,8 +26,23 @@ function shellQuote(s) {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
-export function hookCommand(event, flag) {
+export function hookCommand(event, flag, nodePath = process.execPath) {
+  if (flag === 'normal') return normalHookCommand(event, nodePath);
   return `[ -e "$INJECT_DIR/${flag}" ] || exit 0; exec "$INJECT_NODE" ${shellQuote(HOOK_JS)} ${event} ${MARKER}`;
+}
+
+// Tool-boundary delivery of normal notes. Under the wrapper ($INJECT_DIR set)
+// it checks the wrapper's flag file. In a plain `claude` session it checks for
+// a pending file from the UserPromptSubmit hook (src/adapters/claude-code/plain.js,
+// pendingDir()). Either way it stays in the shell unless there is something
+// to deliver.
+function normalHookCommand(event, nodePath) {
+  return [
+    'if [ -n "$INJECT_DIR" ]; then [ -e "$INJECT_DIR/normal" ] || exit 0;',
+    'else set -- "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"/inject-plain/*.jsonl; [ -e "$1" ] || exit 0; fi;',
+    `N="\${INJECT_NODE:-${nodePath.replace(/[\\"$`]/g, '\\$&')}}"; [ -x "$N" ] || N=node;`,
+    `exec "$N" ${shellQuote(HOOK_JS)} ${event} ${MARKER}`,
+  ].join(' ');
 }
 
 // Plain `claude` sessions don't have $INJECT_NODE, and a GUI-launched session
