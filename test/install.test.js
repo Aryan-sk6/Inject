@@ -24,7 +24,7 @@ test('install merges into existing settings, is idempotent, and uninstall restor
     assert.equal(s.model, 'opus');
     assert.equal(s.hooks.PreToolUse.length, 2);
     assert.equal(s.hooks.PreToolUse[0].hooks[0].command, 'mine.sh');
-    assert.ok(s.hooks.PostToolUse && s.hooks.PostToolUseFailure);
+    assert.ok(s.hooks.PostToolUse && s.hooks.PostToolUseFailure && s.hooks.UserPromptSubmit);
 
     assert.equal(uninstall().changed, true);
     assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath(), 'utf8')), existing);

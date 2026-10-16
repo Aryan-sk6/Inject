@@ -1,9 +1,12 @@
 // Registers inject's hooks in Claude Code's user settings
 // (~/.claude/settings.json, or $CLAUDE_CONFIG_DIR/settings.json).
 //
-// Each hook is a shell one-liner that exits immediately unless the wrapper has
-// a message of the right kind queued, so Claude sessions started without
+// The tool hooks are shell one-liners that exit immediately unless the wrapper
+// has a message of the right kind queued, so Claude sessions started without
 // `inject`, and tool calls with nothing queued, never start Node.
+//
+// The UserPromptSubmit hook runs in every session (once per prompt you send)
+// to log messages typed into Claude Code's own queue mid-turn.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -12,13 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 const MARKER = '# inject-hook';
 const HOOK_JS = fileURLToPath(new URL('./hook.js', import.meta.url));
-
-// event -> flag file that must exist for the hook to do anything
-const HOOKS = {
-  PreToolUse: 'urgent',
-  PostToolUse: 'normal',
-  PostToolUseFailure: 'normal',
-};
+const PROMPT_HOOK_JS = fileURLToPath(new URL('./prompt-hook.js', import.meta.url));
 
 export function settingsPath() {
   const base = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
@@ -31,6 +28,21 @@ function shellQuote(s) {
 
 export function hookCommand(event, flag) {
   return `[ -e "$INJECT_DIR/${flag}" ] || exit 0; exec "$INJECT_NODE" ${shellQuote(HOOK_JS)} ${event} ${MARKER}`;
+}
+
+// Plain `claude` sessions don't have $INJECT_NODE, and a GUI-launched session
+// may not have Node on PATH, so prefer the Node that ran the install.
+export function promptHookCommand(nodePath = process.execPath) {
+  return `N=${shellQuote(nodePath)}; [ -x "$N" ] || N=node; exec "$N" ${shellQuote(PROMPT_HOOK_JS)} ${MARKER}`;
+}
+
+function hooks() {
+  return [
+    { event: 'PreToolUse', command: hookCommand('PreToolUse', 'urgent'), timeout: 10 },
+    { event: 'PostToolUse', command: hookCommand('PostToolUse', 'normal'), timeout: 10 },
+    { event: 'PostToolUseFailure', command: hookCommand('PostToolUseFailure', 'normal'), timeout: 10 },
+    { event: 'UserPromptSubmit', command: promptHookCommand(), timeout: 5 },
+  ];
 }
 
 function isOurs(handler) {
@@ -88,11 +100,9 @@ export function install() {
   const before = JSON.stringify(settings);
   strip(settings);
   settings.hooks ??= {};
-  for (const [event, flag] of Object.entries(HOOKS)) {
+  for (const { event, command, timeout } of hooks()) {
     settings.hooks[event] ??= [];
-    settings.hooks[event].push({
-      hooks: [{ type: 'command', command: hookCommand(event, flag), timeout: 10 }],
-    });
+    settings.hooks[event].push({ hooks: [{ type: 'command', command, timeout }] });
   }
   const changed = JSON.stringify(settings) !== before;
   if (changed) writeSettings(file, settings);
@@ -109,9 +119,9 @@ export function uninstall() {
 
 export function isInstalled() {
   try {
-    const hooks = readSettings(settingsPath()).hooks || {};
-    return Object.keys(HOOKS).every((event) =>
-      (hooks[event] || []).some((g) => (g.hooks || []).some((h) => isOurs(h) && h.command.includes(HOOK_JS))),
+    const installed = readSettings(settingsPath()).hooks || {};
+    return hooks().every(({ event, command }) =>
+      (installed[event] || []).some((g) => (g.hooks || []).some((h) => h.command === command)),
     );
   } catch {
     return false;

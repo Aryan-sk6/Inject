@@ -13,6 +13,10 @@ The line never reaches Claude Code's input box. It goes into a local queue,
 and a Claude Code hook delivers it at the next tool boundary, without stopping
 the agent. Every message is logged to `.steer/fixes.jsonl`.
 
+Plain `claude` sessions get logging too: a message you type into Claude Code's
+own queue while Claude is working is recorded in the same file (see
+[Plain `claude` sessions](#plain-claude-sessions)).
+
 | You type | Urgency | Delivered | What Claude sees |
 | --- | --- | --- | --- |
 | `/inject <msg>` | normal | after the current tool call finishes | extra context next to the tool result |
@@ -29,8 +33,8 @@ the agent. Every message is logged to `.steer/fixes.jsonl`.
    Run this from a clone of this repository. The package isn't on npm yet.
    Once it is published it will be `npm install -g inject-steer`.
 
-2. **Register the hooks** (one time; it edits `~/.claude/settings.json` and
-   keeps a backup):
+2. **Register the hooks** (one time, and again after upgrading inject; it
+   edits `~/.claude/settings.json` and keeps a backup):
 
    ```bash
    inject --install
@@ -86,6 +90,7 @@ Based on the [hooks reference](https://code.claude.com/docs/en/hooks):
 | --- | --- | --- |
 | `PostToolUse`, `PostToolUseFailure` | normal notes | `hookSpecificOutput.additionalContext`. Claude Code wraps it in a system reminder that Claude reads on its next request |
 | `PreToolUse` | urgent messages | `hookSpecificOutput.permissionDecision: "deny"` with `permissionDecisionReason`, which is shown to Claude. Any notes still queued ride along in the same reason |
+| `UserPromptSubmit` | logging messages typed into Claude Code's own queue mid-turn | none; it only appends to `.steer/fixes.jsonl` |
 
 Hook changes take effect in Claude Code sessions started after
 `inject --install`.
@@ -101,12 +106,42 @@ One line per message, written in the project directory (`$CLAUDE_PROJECT_DIR`):
 `ts` is when you queued the message. `doing` is the tool call Claude was about
 to make, or had just made, when the message was delivered.
 
+`delivered_via` says how the message reached Claude:
+
+| `delivered_via` | Meaning |
+| --- | --- |
+| `PostToolUse`, `PostToolUseFailure` | an `/inject` note, added as context after a tool call |
+| `PreToolUse` | an `/inject!` message that blocked a tool call |
+| `claude-code-queue` | a message typed into Claude Code's own queue mid-turn. Claude Code delivers it itself once the running tool calls finish, so `delivered_at` is `null` |
+| `null` | an `/inject` message still queued when Claude Code exited |
+
+## Plain `claude` sessions
+
+`/inject` needs the wrapper, but you can still steer a plain `claude` session
+with Claude Code's own queue: type a message while Claude is working and press
+Enter. Claude Code passes it to Claude as soon as the running tool calls finish.
+
+With inject's hooks installed, those messages are logged to
+`.steer/fixes.jsonl` too. Claude Code fires `UserPromptSubmit` the moment you
+press Enter, including on a queued message, and a queued message carries the
+running turn's `prompt_id` while a new turn gets a new one. The hook keeps the
+last `prompt_id` per session, so it logs only messages sent mid-turn and
+ignores ordinary prompts. `doing` comes from the session transcript.
+
+This hook runs once per prompt in every Claude Code session that reads
+`~/.claude/settings.json`, including the desktop app's. It never prints
+anything and always exits 0, so it can't change or block a prompt.
+
+Limits: there's no urgent mode here, and a message you take back out of the
+queue with `Up` has already been logged.
+
 ## Things to know
 
 - **Claude Code's own queue.** Recent Claude Code versions already queue a
   normal message you type while Claude works, and pass it to Claude once the
   current tool calls finish. inject adds the urgent mode, the log, and an
-  agent-neutral core that other agents can plug into.
+  agent-neutral core that other agents can plug into. Messages sent that way
+  are logged too.
 - **Delivery needs a tool boundary.** A message queued while Claude writes its
   final answer stays queued until Claude's next tool call, which may be in
   your next turn. The `N queued` marker shows that it is waiting.
@@ -148,7 +183,7 @@ provides:
   `before-tool`, add context for `after-tool`.
 
 See `src/adapters/types.js` for the contract and `src/adapters/claude-code/`
-(about 200 lines) for a reference implementation.
+for a reference implementation.
 
 ## Development
 
