@@ -1,5 +1,8 @@
 # inject
 
+<img width="800" height="500" alt="ezgif-825eae4d6b687d00" src="https://github.com/user-attachments/assets/ca05823c-99ae-4c70-b605-27cf69f3743c" />
+
+
 Steer Claude Code while it works, in the same terminal window.
 
 Run `inject` instead of `claude`. While Claude is mid-task, type:
