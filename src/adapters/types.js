@@ -20,6 +20,9 @@
  * @property {() => {path:string, changed:boolean}} install    register hooks
  * @property {() => {path:string, changed:boolean}} uninstall  remove hooks
  * @property {() => boolean} isInstalled
+ * @property {() => {ok:boolean, message:string}} [installMod]    optional: plain-session /inject command
+ * @property {() => {ok:boolean, message:string}} [uninstallMod]
+ * @property {() => boolean} [modInstalled]
  */
 
 export {};

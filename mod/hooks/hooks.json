@@ -1,0 +1,4 @@
+{
+  "description": "The inject /inject command",
+  "modules": ["./register.js"]
+}

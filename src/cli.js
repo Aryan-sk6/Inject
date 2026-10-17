@@ -20,6 +20,8 @@ export async function main(argv) {
       if (changed && argv[0] === '--install') {
         console.log(`inject: already-running ${adapter.name} sessions pick this up after a restart.`);
       }
+      const mod = argv[0] === '--install' ? adapter.installMod?.() : adapter.uninstallMod?.();
+      if (mod?.message) console[mod.ok ? 'log' : 'error'](`inject: ${mod.message}`);
     } catch (err) {
       console.error(`inject: ${err.message}`);
       process.exit(1);
