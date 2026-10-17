@@ -13,8 +13,9 @@ The line never reaches Claude Code's input box. It goes into a local queue,
 and a Claude Code hook delivers it at the next tool boundary, without stopping
 the agent. Every message is logged to `.steer/fixes.jsonl`.
 
-`/inject <msg>` also works if you start plain `claude` instead of `inject`,
-without urgent mode (see [Plain `claude` sessions](#plain-claude-sessions)).
+`/inject <msg>` also works if you start plain `claude` instead of `inject`
+(`inject --install` adds a small Claude Code plugin for that), without urgent
+mode. See [Plain `claude` sessions](#plain-claude-sessions).
 
 | You type | Urgency | Delivered | What Claude sees | `inject` | plain `claude` |
 | --- | --- | --- | --- | :-: | :-: |
@@ -32,8 +33,10 @@ without urgent mode (see [Plain `claude` sessions](#plain-claude-sessions)).
    Run this from a clone of this repository. The package isn't on npm yet.
    Once it is published it will be `npm install -g inject-steer`.
 
-2. **Register the hooks** (one time, and again after upgrading inject; it
-   edits `~/.claude/settings.json` and keeps a backup):
+2. **Register the hooks and the `/inject` command** (one time, and again after
+   upgrading inject). It edits `~/.claude/settings.json` (keeping a backup) and
+   installs a small Claude Code plugin with `claude plugin install`, so the
+   `claude` command must be on your PATH:
 
    ```bash
    inject --install
@@ -43,8 +46,8 @@ without urgent mode (see [Plain `claude` sessions](#plain-claude-sessions)).
    (`inject --resume`, `inject --model opus`, ...). While Claude works, type
    `/inject <message>` or `/inject! <message>` and press Enter.
 
-   Prefer to keep typing `claude`? After step 2, `/inject <message>` works
-   there too, just without urgent mode.
+   Prefer to keep typing `claude`? After step 2, start a new `claude` session and
+   `/inject <message>` works there too, just without urgent mode.
 
 ## What you'll see
 
@@ -94,7 +97,7 @@ Based on the [hooks reference](https://code.claude.com/docs/en/hooks):
 | --- | --- | --- |
 | `PostToolUse`, `PostToolUseFailure` | normal notes | `hookSpecificOutput.additionalContext`. Claude Code wraps it in a system reminder that Claude reads on its next request |
 | `PreToolUse` | urgent messages | `hookSpecificOutput.permissionDecision: "deny"` with `permissionDecisionReason`, which is shown to Claude. Any notes still queued ride along in the same reason |
-| `UserPromptSubmit` | plain `claude`: queueing `/inject`; logging messages typed into Claude Code's own queue | `decision: "block"` with a `reason` for `/inject ...` prompts (the reason is shown to you, not Claude); otherwise nothing |
+| `UserPromptSubmit` | logging messages typed into Claude Code's own queue | none; it only appends to `.steer/fixes.jsonl` |
 
 Hook changes take effect in Claude Code sessions started after
 `inject --install`.
@@ -114,55 +117,67 @@ to make, or had just made, when the message was delivered.
 
 | `delivered_via` | Meaning |
 | --- | --- |
-| `PostToolUse`, `PostToolUseFailure` | an `/inject` note, added as context after a tool call (wrapper or plain `claude`) |
+| `PostToolUse`, `PostToolUseFailure` | an `/inject` note, added as context after a tool call (wrapper or plain `claude`, via the mod) |
 | `PreToolUse` | an `/inject!` message that blocked a tool call |
 | `claude-code-queue` | a message typed into Claude Code's own queue mid-turn. Claude Code delivers it itself once the running tool calls finish, so `delivered_at` is `null` |
 | `null` | an `/inject` message still queued when Claude Code exited |
 
 ## Plain `claude` sessions
 
-After `inject --install`, `/inject <message>` works in a session started with
-plain `claude` too. There is no wrapper and no urgent mode:
+After `inject --install`, `/inject <message>` also works in a session started with
+plain `claude`, even while Claude is working. There is no wrapper and no urgent mode:
 
 | | `inject` | plain `claude` |
 | --- | --- | --- |
 | `/inject <msg>` | yes | yes |
-| `/inject! <msg>` | yes, blocks the next tool call | refused with a notice; nothing is sent |
-| Live "queued" bar at the bottom of the terminal | yes | no |
+| `/inject! <msg>` | yes, blocks the next tool call | no (Claude Code says "Unknown command") |
+| Live "queued" bar at the bottom of the terminal | yes | a short toast: "queued, delivers at the next step" |
 | Message reaches Claude | next tool boundary | next tool boundary |
 | Logged to `.steer/fixes.jsonl` | yes | yes |
 
-How it works without a wrapper:
+**Why a plugin and not just a hook.** Claude Code answers `Unknown command: /inject`
+by itself, before any hook runs, and it holds a command typed while Claude is working
+until the turn ends. A hook therefore can't catch `/inject`. A Claude Code
+[mod](https://code.claude.com/docs/en/plugins/mods/overview) can register a real
+command with `immediate: true`, which runs at once even mid-turn. That is all the
+`mod/` folder is: one command, about 60 lines.
 
-1. Claude Code runs the `UserPromptSubmit` hook the moment you press Enter,
-   including for a message you type while Claude is working. The hook sees a
-   prompt that starts with `/inject`, **blocks it** (so Claude never sees the
-   text) and appends the message to a small per-session file in
-   `$XDG_RUNTIME_DIR/inject-plain/` (or the system temp directory).
-   Claude Code shows `inject: queued, delivers at Claude's next tool call.`
-2. After the next tool call, the `PostToolUse` hook claims that file and
-   returns the message as `additionalContext`, the same as in wrapper mode. Each
-   message is delivered once, and only to the session that queued it.
+How it works:
 
-Other messages you type mid-turn (no `/inject` prefix) go into Claude Code's own
-queue as usual. The hook logs those to `.steer/fixes.jsonl` as well, with
-`delivered_via: "claude-code-queue"`. It keeps the last `prompt_id` per session:
-a queued message carries the running turn's `prompt_id`, and a new turn gets a
-new one.
+1. `/inject use pnpm` runs the mod's command. It appends the message to a small file,
+   `~/.claude/inject-pending/<session id>.jsonl` (or under `$CLAUDE_CONFIG_DIR`), and
+   shows a toast. Nothing is sent to Claude yet, and the command prints nothing into
+   the conversation.
+2. After Claude's next tool call, the same `PostToolUse` hook that the wrapper uses
+   claims that file and returns the message as `additionalContext`. It is delivered
+   once, and only to the session that queued it. The hook also logs it to
+   `.steer/fixes.jsonl`.
 
-The `UserPromptSubmit` hook runs once per prompt in every Claude Code session
-that reads `~/.claude/settings.json`, including the desktop app's. It prints
-nothing for ordinary prompts, and any failure lets the prompt through unchanged.
+`inject --install` runs `claude plugin marketplace add <this repo>` and
+`claude plugin install inject@inject`. Because it is a directory marketplace, the
+plugin loads in place: edits under `mod/` apply at the next session start.
+`inject --uninstall` removes it again. If `claude` isn't on your PATH, `inject --install`
+prints the two commands to run yourself.
+
+Other messages you type mid-turn (no `/inject` prefix) go into Claude Code's own queue
+as usual. The `UserPromptSubmit` hook logs those to `.steer/fixes.jsonl` too, with
+`delivered_via: "claude-code-queue"`. It keeps the last `prompt_id` per session: a
+queued message carries the running turn's `prompt_id`, and a new turn gets a new one.
+That hook prints nothing and always exits 0, so it never changes or blocks a prompt. It
+runs once per prompt in every Claude Code session that reads `~/.claude/settings.json`,
+including the desktop app's.
 
 Limits:
 
 - **No urgent mode.** Only a wrapper that holds the queue can make the next tool
-  call fail, so `/inject!` is refused here instead of being silently downgraded.
+  call fail.
 - **A tool call is needed.** A message queued while Claude writes its final
   answer waits for Claude's next tool call, which may be in your next turn.
-  Pending files older than 24 hours are removed.
-- **Inside the wrapper** `/inject` lines are held back before Claude Code sees
-  them, so the plain-mode hook steps aside.
+- **New sessions only.** Already-running `claude` sessions don't have the command until
+  you restart them (or run `/reload-plugins`).
+- **Folder trust.** Claude Code loads plugins only in folders you've trusted.
+- **Inside the wrapper** `/inject` lines are held back before Claude Code sees them,
+  so the mod isn't involved.
 - A message you take back out of Claude Code's own queue with `Up` has already
   been logged.
 
@@ -198,8 +213,8 @@ inject --uninstall
 npm uninstall -g inject-steer
 ```
 
-`--uninstall` removes only inject's hooks (they're tagged `# inject-hook`) and
-leaves the rest of your settings alone.
+`--uninstall` removes only inject's hooks (they're tagged `# inject-hook`) and the
+`inject@inject` plugin, and leaves the rest of your settings alone.
 
 ## Adding another agent
 

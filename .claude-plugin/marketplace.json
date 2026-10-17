@@ -1,0 +1,11 @@
+{
+  "name": "inject",
+  "owner": { "name": "inject" },
+  "plugins": [
+    {
+      "name": "inject",
+      "source": "./mod",
+      "description": "Adds /inject <message>: send Claude a note while it works, delivered at its next tool call"
+    }
+  ]
+}

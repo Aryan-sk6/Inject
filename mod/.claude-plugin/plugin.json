@@ -1,0 +1,6 @@
+{
+  "name": "inject",
+  "version": "0.1.0",
+  "description": "Adds /inject <message> to plain Claude Code sessions: the note reaches Claude at its next tool call, without interrupting it",
+  "author": { "name": "inject" }
+}

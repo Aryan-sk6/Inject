@@ -8,7 +8,9 @@
   },
   "files": [
     "bin",
-    "src"
+    "src",
+    "mod",
+    ".claude-plugin"
   ],
   "scripts": {
     "test": "node --test test/"

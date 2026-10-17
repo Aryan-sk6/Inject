@@ -1,4 +1,4 @@
-import { install, isInstalled, uninstall } from './install.js';
+import { install, installMod, isInstalled, modInstalled, uninstall, uninstallMod } from './install.js';
 
 /** @type {import('../types.js').Adapter} */
 export default {
@@ -8,4 +8,7 @@ export default {
   install,
   uninstall,
   isInstalled,
+  installMod,
+  uninstallMod,
+  modInstalled,
 };
