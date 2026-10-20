@@ -179,6 +179,10 @@ Limits:
 - **New sessions only.** Already-running `claude` sessions don't have the command until
   you restart them (or run `/reload-plugins`).
 - **Folder trust.** Claude Code loads plugins only in folders you've trusted.
+- **Desktop app: type plain text, not `/inject`.** The desktop app holds every slash
+  command until the turn ends, so `/inject` only runs after Claude has finished. A
+  plain message typed mid-turn is delivered after the current tool call and logged to
+  `.steer/fixes.jsonl` as `claude-code-queue`.
 - **Inside the wrapper** `/inject` lines are held back before Claude Code sees them,
   so the mod isn't involved.
 - A message you take back out of Claude Code's own queue with `Up` has already
